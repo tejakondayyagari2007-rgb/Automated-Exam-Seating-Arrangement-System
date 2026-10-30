@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Reports</title>
+    <link rel="stylesheet" href="/static/css/global.css" />
+    <link rel="stylesheet" href="/static/css/reports.css" />
+    <link rel="stylesheet" href="/static/css/tables.css" />
+</head>
+<body>
+    <div class="app-shell">
+        <aside class="sidebar"><div class="brand">SeatingSystem</div><nav><a href="/dashboard">Dashboard</a><a href="/students">Students</a><a href="/teachers">Teachers</a><a href="/rooms">Rooms</a><a href="/subjects">Subjects</a><a href="/exams">Exams</a><a href="/timetable">Timetable</a><a href="/seating">Seating</a><a href="/attendance">Attendance</a><a class="active" href="/reports">Reports</a><a href="/notifications">Notifications</a><a href="/settings">Settings</a></nav></aside>
+        <main class="content"><div class="topbar"><h2>Reports</h2><div class="topbar-right"><button class="secondary-btn" onclick="setTheme(!document.body.classList.contains('dark-mode'))">Dark Mode</button><button class="primary-btn" onclick="logoutUser()">Logout</button></div></div>
+            <section class="card report-card">
+                <h3>Report Summary</h3>
+                <div class="report-grid" id="report-grid"></div>
+            </section>
+            <section class="card" style="margin-top: 24px;">
+                <h3>Exam-wise Summary</h3>
+                <div class="table-wrap" id="exam-summary-table"></div>
+            </section>
+            <section class="card" style="margin-top: 24px;">
+                <h3>Attendance Summary</h3>
+                <div class="table-wrap" id="attendance-summary-table"></div>
+            </section>
+            <section class="card" style="margin-top: 24px;">
+                <h3>Room Seating Summary</h3>
+                <div class="table-wrap" id="room-seating-table"></div>
+            </section>
+            <section class="card" style="margin-top: 24px;">
+                <h3>Student Seating Details</h3>
+                <div class="table-wrap" id="student-seating-table"></div>
+            </section>
+        </main>
+    </div>
+    <div id="toast-container"></div>
+    <script src="/static/js/api.js"></script>
+    <script src="/static/js/auth.js"></script>
+    <script src="/static/js/common.js"></script>
+    <script>
+        function renderTable(containerId, columns, rows, values) {
+            const container = document.getElementById(containerId);
+            container.replaceChildren();
+            if (!rows.length) {
+                container.textContent = 'No report data is available.';
+                return;
+            }
+
+            const table = document.createElement('table');
+            const head = document.createElement('thead');
+            const headerRow = document.createElement('tr');
+            columns.forEach((column) => {
+                const cell = document.createElement('th');
+                cell.textContent = column;
+                headerRow.appendChild(cell);
+            });
+            head.appendChild(headerRow);
+            table.appendChild(head);
+
+            const body = document.createElement('tbody');
+            rows.forEach((item) => {
+                const row = document.createElement('tr');
+                values(item).forEach((value) => {
+                    const cell = document.createElement('td');
+                    cell.textContent = value == null ? '—' : String(value);
+                    row.appendChild(cell);
+                });
+                body.appendChild(row);
+            });
+            table.appendChild(body);
+            container.appendChild(table);
+        }
+
+        async function loadReports() {
+            try {
+                const response = await apiRequest('/api/reports');
+                const reports = response.reports || {};
+                const examSummary = reports.exam_summary || [];
+                const attendanceSummary = reports.attendance_summary || [];
+                const roomSeating = reports.room_seating || [];
+                const studentSeating = reports.student_seating || [];
+                const cards = [
+                    ['Student Seating', studentSeating.length],
+                    ['Room Seating', roomSeating.length],
+                    ['Exam Summary', examSummary.length],
+                    ['Attendance Summary', attendanceSummary.length]
+                ];
+                document.getElementById('report-grid').innerHTML = cards.map(([label, value]) => `
+                    <div class="card"><div class="label">${label}</div><div class="value" style="font-size:2rem; margin-top:12px;">${value}</div></div>
+                `).join('');
+                renderTable(
+                    'exam-summary-table',
+                    ['Exam', 'Code', 'Date', 'Registered Students', 'Seated Students', 'Arrangements'],
+                    examSummary,
+                    (item) => [
+                        item.exam_name,
+                        item.exam_code,
+                        formatDate(item.date_value),
+                        item.registered_students,
+                        item.students_assigned,
+                        item.arrangement_count,
+                    ],
+                );
+                renderTable(
+                    'attendance-summary-table',
+                    ['Exam', 'Present', 'Absent', 'Demo Records'],
+                    attendanceSummary,
+                    (item) => [
+                        item.exam_name,
+                        item.present,
+                        item.absent,
+                        item.demo_records,
+                    ],
+                );
+                renderTable(
+                    'room-seating-table',
+                    ['Exam', 'Date', 'Room', 'Assigned Students', 'Capacity'],
+                    roomSeating,
+                    (item) => [
+                        item.exam_name,
+                        formatDate(item.date_value),
+                        item.room_number,
+                        item.assigned_students,
+                        item.capacity,
+                    ],
+                );
+                renderTable(
+                    'student-seating-table',
+                    ['Exam', 'Roll Number', 'Student', 'Room', 'Seat', 'Arrangement'],
+                    studentSeating,
+                    (item) => [
+                        item.exam_name,
+                        item.roll_no,
+                        item.name,
+                        item.room_number,
+                        item.seat_number,
+                        item.arrangement_status,
+                    ],
+                );
+            } catch (error) { showToast(error.message, 'error'); }
+        }
+        async function logoutUser() { try { await apiRequest('/api/auth/logout', { method: 'POST' }); window.location.href = '/login'; } catch (error) { showToast('Logout failed', 'error'); } }
+        checkAuth();
+        loadReports();
+    </script>
+</body>
+</html>

@@ -1,0 +1,35 @@
+.env
+**pycache**/
+*.pyc
+venv/
+.venv/
+static/uploads/*
+static/generated/*
+static/exports/*
+login_credentials.txt
+database_backup_*.sql
+# Virtual environment
+.venv/
+venv/
+env/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Environment variables
+.env
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# VS Code
+.vscode/
+
+# Testing cache
+.pytest_cache/
+
+# Logs
+*.log

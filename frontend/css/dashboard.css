@@ -1,0 +1,3 @@
+.stat-card { min-height: 140px; }
+.list-item { padding: 12px 0; border-bottom: 1px solid var(--border); }
+.list-item:last-child { border-bottom: none; }

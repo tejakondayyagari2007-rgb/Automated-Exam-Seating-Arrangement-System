@@ -1,0 +1,2 @@
+.report-card { margin-top: 20px; }
+.report-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; }

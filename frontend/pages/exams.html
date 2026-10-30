@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Exams</title>
+    <link rel="stylesheet" href="/static/css/global.css" />
+    <link rel="stylesheet" href="/static/css/tables.css" />
+    <link rel="stylesheet" href="/static/css/forms.css" />
+</head>
+<body>
+    <div class="app-shell">
+        <aside class="sidebar"><div class="brand">SeatingSystem</div><nav><a href="/dashboard">Dashboard</a><a href="/students">Students</a><a href="/teachers">Teachers</a><a href="/rooms">Rooms</a><a href="/subjects">Subjects</a><a class="active" href="/exams">Exams</a><a href="/timetable">Timetable</a><a href="/seating">Seating</a><a href="/attendance">Attendance</a><a href="/reports">Reports</a><a href="/notifications">Notifications</a><a href="/settings">Settings</a></nav></aside>
+        <main class="content"><div class="topbar"><h2>Exam Management</h2><div class="topbar-right"><button class="secondary-btn" onclick="setTheme(!document.body.classList.contains('dark-mode'))">Dark Mode</button><button class="primary-btn" onclick="logoutUser()">Logout</button></div></div>
+            <section class="card" data-admin-only>
+                <h3 id="exam-form-title">Create Exam</h3>
+                <form id="exam-form" class="form-panel">
+                    <input type="text" name="name" placeholder="Exam name" maxlength="200" required />
+                    <input type="text" name="exam_code" placeholder="Exam code" maxlength="40" required />
+                    <select name="subject_id" id="exam-subject" required>
+                        <option value="">Loading subjects...</option>
+                    </select>
+                    <input type="date" name="date_value" required />
+                    <input type="time" name="start_time" required />
+                    <input type="time" name="end_time" required />
+                    <input type="number" name="duration_minutes" placeholder="Duration in minutes" min="1" step="1" required />
+                    <select name="status" required>
+                        <option value="Upcoming">Upcoming</option>
+                        <option value="Ongoing">Ongoing</option>
+                        <option value="Completed">Completed</option>
+                        <option value="Cancelled">Cancelled</option>
+                    </select>
+                    <div class="form-actions wide">
+                        <button type="submit" class="primary-btn" id="exam-submit">Create Exam</button>
+                        <button type="button" class="secondary-btn" id="cancel-edit" hidden>Cancel Edit</button>
+                    </div>
+                </form>
+            </section>
+            <section class="card" style="margin-top: 24px;">
+                <h3>Exams</h3>
+                <div class="table-wrap">
+                    <table>
+                        <thead><tr><th>Exam Name</th><th>Exam Code</th><th>Subject</th><th>Date</th><th>Start Time</th><th>End Time</th><th>Duration (min)</th><th>Status</th><th data-admin-only>Actions</th></tr></thead>
+                        <tbody id="exams-body"></tbody>
+                    </table>
+                </div>
+            </section>
+        </main>
+    </div>
+    <div id="toast-container"></div>
+    <script src="/static/js/api.js"></script>
+    <script src="/static/js/auth.js"></script>
+    <script src="/static/js/common.js"></script>
+    <script>
+        const examForm = document.getElementById('exam-form');
+        const subjectSelect = document.getElementById('exam-subject');
+        let editingExamId = null;
+
+        function addCell(row, value) {
+            const cell = document.createElement('td');
+            cell.textContent = value == null ? '—' : value;
+            row.appendChild(cell);
+        }
+
+        async function loadSubjects(selectedId = '') {
+            try {
+                const response = await apiRequest('/api/subjects');
+                const subjects = response.subjects || [];
+                subjectSelect.replaceChildren(new Option('Select a subject', ''));
+                subjects.forEach((subject) => {
+                    const label = `${subject.name} (${subject.code})`;
+                    subjectSelect.add(new Option(label, subject.id));
+                });
+                subjectSelect.value = selectedId ? String(selectedId) : '';
+                if (!subjects.length) {
+                    showToast('Add a subject before creating an exam.', 'error');
+                }
+            } catch (error) {
+                subjectSelect.replaceChildren(new Option('Unable to load subjects', ''));
+                showToast(error.message, 'error');
+            }
+        }
+
+        async function loadExams() {
+            try {
+                const response = await apiRequest('/api/exams');
+                const body = document.getElementById('exams-body');
+                body.replaceChildren();
+                (response.exams || []).forEach((exam) => {
+                    const row = document.createElement('tr');
+                    addCell(row, exam.name);
+                    addCell(row, exam.exam_code);
+                    addCell(row, exam.subject_name ? `${exam.subject_name}${exam.subject_code ? ` (${exam.subject_code})` : ''}` : '—');
+                    addCell(row, formatDate(exam.date_value));
+                    addCell(row, exam.start_time);
+                    addCell(row, exam.end_time);
+                    addCell(row, exam.duration_minutes);
+                    addCell(row, exam.status);
+
+                    if (getCurrentUser().role === 'ADMIN') {
+                        const actions = document.createElement('td');
+                        const editButton = document.createElement('button');
+                        editButton.type = 'button';
+                        editButton.className = 'secondary-btn';
+                        editButton.textContent = 'Edit';
+                        editButton.addEventListener('click', () => editExam(exam));
+                        const deleteButton = document.createElement('button');
+                        deleteButton.type = 'button';
+                        deleteButton.className = 'secondary-btn';
+                        deleteButton.textContent = 'Delete';
+                        deleteButton.addEventListener('click', () => deleteExam(exam.id));
+                        actions.append(editButton, deleteButton);
+                        row.appendChild(actions);
+                    }
+                    body.appendChild(row);
+                });
+            } catch (error) {
+                showToast(error.message, 'error');
+            }
+        }
+
+        function editExam(exam) {
+            editingExamId = exam.id;
+            examForm.elements.name.value = exam.name || '';
+            examForm.elements.exam_code.value = exam.exam_code || '';
+            examForm.elements.subject_id.value = String(exam.subject_id || '');
+            examForm.elements.date_value.value = exam.date_value || '';
+            examForm.elements.start_time.value = exam.start_time || '';
+            examForm.elements.end_time.value = exam.end_time || '';
+            examForm.elements.duration_minutes.value = exam.duration_minutes || '';
+            examForm.elements.status.value = exam.status || 'Upcoming';
+            document.getElementById('exam-form-title').textContent = 'Edit Exam';
+            document.getElementById('exam-submit').textContent = 'Save Changes';
+            document.getElementById('cancel-edit').hidden = false;
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        function resetExamForm() {
+            editingExamId = null;
+            examForm.reset();
+            document.getElementById('exam-form-title').textContent = 'Create Exam';
+            document.getElementById('exam-submit').textContent = 'Create Exam';
+            document.getElementById('cancel-edit').hidden = true;
+        }
+
+        examForm.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            const formData = new FormData(examForm);
+            const payload = Object.fromEntries(formData.entries());
+            if (payload.end_time <= payload.start_time) {
+                showToast('End time must be later than start time.', 'error');
+                return;
+            }
+            if (!Number.isInteger(Number(payload.duration_minutes)) || Number(payload.duration_minutes) <= 0) {
+                showToast('Duration must be a positive whole number of minutes.', 'error');
+                return;
+            }
+            try {
+                const wasEditing = editingExamId !== null;
+                const url = wasEditing ? `/api/exams/${editingExamId}` : '/api/exams';
+                await apiRequest(url, { method: wasEditing ? 'PUT' : 'POST', body: payload });
+                resetExamForm();
+                await loadExams();
+                showToast(wasEditing ? 'Exam updated successfully.' : 'Exam created successfully.', 'success');
+            } catch (error) {
+                showToast(error.message, 'error');
+            }
+        });
+
+        document.getElementById('cancel-edit').addEventListener('click', resetExamForm);
+
+        async function deleteExam(id) {
+            if (!window.confirm('Delete this exam? Exams linked to timetable, attendance, or seating records cannot be deleted.')) return;
+            try {
+                await apiRequest(`/api/exams/${id}`, { method: 'DELETE' });
+                await loadExams();
+                showToast('Exam deleted successfully.', 'success');
+            } catch (error) {
+                showToast(error.message, 'error');
+            }
+        }
+
+        async function logoutUser() {
+            try {
+                await apiRequest('/api/auth/logout', { method: 'POST' });
+                window.location.href = '/login';
+            } catch (error) {
+                showToast(error.message, 'error');
+            }
+        }
+
+        checkAuth().then((user) => {
+            if (!user) return;
+            if (user.role === 'ADMIN') loadSubjects().then(loadExams);
+            else loadExams();
+        });
+    </script>
+</body>
+</html>

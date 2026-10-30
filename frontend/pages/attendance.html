@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Attendance</title>
+    <link rel="stylesheet" href="/static/css/global.css" />
+    <link rel="stylesheet" href="/static/css/tables.css" />
+    <link rel="stylesheet" href="/static/css/forms.css" />
+</head>
+<body>
+    <div class="app-shell">
+        <aside class="sidebar"><div class="brand">SeatingSystem</div><nav><a href="/dashboard">Dashboard</a><a href="/students">Students</a><a href="/teachers">Teachers</a><a href="/rooms">Rooms</a><a href="/subjects">Subjects</a><a href="/exams">Exams</a><a href="/timetable">Timetable</a><a href="/seating">Seating</a><a class="active" href="/attendance">Attendance</a><a href="/reports">Reports</a><a href="/notifications">Notifications</a><a href="/settings">Settings</a></nav></aside>
+        <main class="content"><div class="topbar"><h2>Attendance</h2><div class="topbar-right"><button class="secondary-btn" onclick="setTheme(!document.body.classList.contains('dark-mode'))">Dark Mode</button><button class="primary-btn" onclick="logoutUser()">Logout</button></div></div>
+            <section class="card"><h3>Mark Attendance</h3><form id="attendance-form" class="form-panel"><input type="number" name="student_id" placeholder="Student ID" required /><input type="number" name="exam_id" placeholder="Exam ID" required /><select name="present_status"><option value="1">Present</option><option value="0">Absent</option></select><div class="form-actions wide"><button type="submit" class="primary-btn">Save Attendance</button></div></form></section>
+            <section class="card" style="margin-top: 24px;"><h3>Attendance Summary</h3><div class="table-wrap"><table><thead><tr><th>Student</th><th>Exam</th><th>Status</th><th>Remarks</th></tr></thead><tbody id="attendance-body"></tbody></table></div></section>
+        </main>
+    </div>
+    <div id="toast-container"></div>
+    <script src="/static/js/api.js"></script>
+    <script src="/static/js/auth.js"></script>
+    <script src="/static/js/common.js"></script>
+    <script>
+        async function loadAttendance() {
+            try {
+                const response = await apiRequest('/api/attendance');
+                const body = document.getElementById('attendance-body');
+                body.replaceChildren();
+                (response.attendance || []).forEach((item) => {
+                    const row = document.createElement('tr');
+                    const student = document.createElement('td');
+                    student.textContent = item.name || item.student_id;
+                    const exam = document.createElement('td');
+                    exam.textContent = item.exam_name || item.exam_id;
+                    const statusCell = document.createElement('td');
+                    const status = document.createElement('span');
+                    status.className = `badge ${item.present_status == 1 ? 'success' : 'danger'}`;
+                    status.textContent = item.present_status == 1 ? 'Present' : 'Absent';
+                    statusCell.appendChild(status);
+                    const remarks = document.createElement('td');
+                    remarks.textContent = item.remarks || '—';
+                    row.append(student, exam, statusCell, remarks);
+                    body.appendChild(row);
+                });
+            } catch (error) { showToast(error.message, 'error'); }
+        }
+        document.getElementById('attendance-form').addEventListener('submit', async (event) => { event.preventDefault(); const payload = Object.fromEntries(new FormData(event.target).entries()); try { await apiRequest('/api/attendance', { method: 'POST', body: payload }); event.target.reset(); loadAttendance(); showToast('Attendance recorded.', 'success'); } catch (error) { showToast(error.message, 'error'); } });
+        async function logoutUser() { try { await apiRequest('/api/auth/logout', { method: 'POST' }); window.location.href = '/login'; } catch (error) { showToast('Logout failed', 'error'); } }
+        checkAuth();
+        loadAttendance();
+    </script>
+</body>
+</html>

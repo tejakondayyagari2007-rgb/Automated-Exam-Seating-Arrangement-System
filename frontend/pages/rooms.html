@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Rooms</title>
+    <link rel="stylesheet" href="/static/css/global.css" />
+    <link rel="stylesheet" href="/static/css/tables.css" />
+    <link rel="stylesheet" href="/static/css/forms.css" />
+</head>
+<body>
+    <div class="app-shell">
+        <aside class="sidebar"><div class="brand">SeatingSystem</div><nav><a href="/dashboard">Dashboard</a><a href="/students">Students</a><a href="/teachers">Teachers</a><a class="active" href="/rooms">Rooms</a><a href="/subjects">Subjects</a><a href="/exams">Exams</a><a href="/timetable">Timetable</a><a href="/seating">Seating</a><a href="/attendance">Attendance</a><a href="/reports">Reports</a><a href="/notifications">Notifications</a><a href="/settings">Settings</a></nav></aside>
+        <main class="content"> <div class="topbar"><h2>Room Management</h2><div class="topbar-right"><button class="secondary-btn" onclick="setTheme(!document.body.classList.contains('dark-mode'))">Dark Mode</button><button class="primary-btn" onclick="logoutUser()">Logout</button></div></div>
+            <section class="card" data-admin-only><h3>Add Room</h3><form id="room-form" class="form-panel"><input type="text" name="room_number" placeholder="Room number" required /><input type="text" name="building" placeholder="Building" /><input type="number" name="floor" placeholder="Floor" /><input type="number" name="rows" placeholder="Rows" required /><input type="number" name="columns" placeholder="Columns" required /><input type="text" name="facilities" placeholder="Facilities" /><div class="form-actions wide"><button type="submit" class="primary-btn">Save Room</button></div></form></section>
+            <section class="card" style="margin-top: 24px;"><h3>Rooms</h3><div class="table-wrap"><table><thead><tr><th>Room</th><th>Building</th><th>Layout</th><th>Capacity</th><th data-admin-only>Actions</th></tr></thead><tbody id="rooms-body"></tbody></table></div></section>
+        </main>
+    </div>
+    <div id="toast-container"></div>
+    <script src="/static/js/api.js"></script>
+    <script src="/static/js/auth.js"></script>
+    <script src="/static/js/common.js"></script>
+    <script>
+        async function loadRooms() {
+            try {
+                const response = await apiRequest('/api/rooms');
+                const isAdmin = getCurrentUser().role === 'ADMIN';
+                document.getElementById('rooms-body').innerHTML = (response.rooms || []).map((room) => `
+                    <tr><td>${room.room_number}</td><td>${room.building}</td><td>${room.rows} x ${room.columns}</td><td>${room.capacity}</td>${isAdmin ? `<td><button class="secondary-btn" onclick="deleteRoom(${room.id})">Delete</button></td>` : ''}</tr>
+                `).join('');
+            } catch (error) { showToast(error.message, 'error'); }
+        }
+
+        document.getElementById('room-form').addEventListener('submit', async (event) => {
+            event.preventDefault();
+            const payload = Object.fromEntries(new FormData(event.target).entries());
+            try { await apiRequest('/api/rooms', { method: 'POST', body: payload }); event.target.reset(); loadRooms(); showToast('Room saved.', 'success'); } catch (error) { showToast(error.message, 'error'); }
+        });
+
+        async function deleteRoom(id) {
+            try { await apiRequest(`/api/rooms/${id}`, { method: 'DELETE' }); loadRooms(); showToast('Room deleted.', 'success'); } catch (error) { showToast(error.message, 'error'); }
+        }
+
+        async function logoutUser() { try { await apiRequest('/api/auth/logout', { method: 'POST' }); window.location.href = '/login'; } catch (error) { showToast('Logout failed', 'error'); } }
+        checkAuth().then((user) => {
+            if (user) loadRooms();
+        });
+    </script>
+</body>
+</html>

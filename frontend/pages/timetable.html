@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Timetable</title>
+    <link rel="stylesheet" href="/static/css/global.css" />
+    <link rel="stylesheet" href="/static/css/tables.css" />
+    <link rel="stylesheet" href="/static/css/forms.css" />
+</head>
+<body>
+    <div class="app-shell">
+        <aside class="sidebar"><div class="brand">SeatingSystem</div><nav><a href="/dashboard">Dashboard</a><a href="/students">Students</a><a href="/teachers">Teachers</a><a href="/rooms">Rooms</a><a href="/subjects">Subjects</a><a href="/exams">Exams</a><a class="active" href="/timetable">Timetable</a><a href="/seating">Seating</a><a href="/attendance">Attendance</a><a href="/reports">Reports</a><a href="/notifications">Notifications</a><a href="/settings">Settings</a></nav></aside>
+        <main class="content"><div class="topbar"><h2>Timetable</h2><div class="topbar-right"><button class="secondary-btn" onclick="setTheme(!document.body.classList.contains('dark-mode'))">Dark Mode</button><button class="primary-btn" onclick="logoutUser()">Logout</button></div></div>
+            <section class="card" data-admin-only><h3>Schedule Exam</h3><form id="timetable-form" class="form-panel"><input type="number" name="exam_id" placeholder="Exam ID" required /><input type="number" name="room_id" placeholder="Room ID" required /><input type="number" name="invigilator_id" placeholder="Invigilator ID" required /><input type="date" name="exam_date" required /><input type="time" name="start_time" required /><input type="time" name="end_time" required /><div class="form-actions wide"><button type="submit" class="primary-btn">Save Timetable</button></div></form></section>
+            <section class="card" style="margin-top: 24px;"><h3>Entries</h3><div class="table-wrap"><table><thead><tr><th>Exam</th><th>Room</th><th>Invigilator</th><th>Date</th><th>Time</th></tr></thead><tbody id="timetable-body"></tbody></table></div></section>
+        </main>
+    </div>
+    <div id="toast-container"></div>
+    <script src="/static/js/api.js"></script>
+    <script src="/static/js/auth.js"></script>
+    <script src="/static/js/common.js"></script>
+    <script>
+        async function loadTimetable() {
+            try {
+                const response = await apiRequest('/api/timetable');
+                document.getElementById('timetable-body').innerHTML = (response.timetable || []).map((item) => `
+                    <tr><td>${item.exam_name || item.exam_id}</td><td>${item.room_number || item.room_id}</td><td>${item.invigilator_name || item.invigilator_id}</td><td>${item.exam_date}</td><td>${item.start_time} - ${item.end_time}</td></tr>
+                `).join('');
+            } catch (error) { showToast(error.message, 'error'); }
+        }
+        document.getElementById('timetable-form').addEventListener('submit', async (event) => { event.preventDefault(); const payload = Object.fromEntries(new FormData(event.target).entries()); try { await apiRequest('/api/timetable', { method: 'POST', body: payload }); event.target.reset(); loadTimetable(); showToast('Timetable saved.', 'success'); } catch (error) { showToast(error.message, 'error'); } });
+        async function logoutUser() { try { await apiRequest('/api/auth/logout', { method: 'POST' }); window.location.href = '/login'; } catch (error) { showToast('Logout failed', 'error'); } }
+        checkAuth().then((user) => {
+            if (user) loadTimetable();
+        });
+    </script>
+</body>
+</html>

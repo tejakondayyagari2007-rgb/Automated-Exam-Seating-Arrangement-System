@@ -1,0 +1,6 @@
+.seat-grid { display: grid; grid-template-columns: repeat(6, minmax(36px, 1fr)); gap: 8px; margin-top: 20px; }
+.seat { padding: 10px 8px; border-radius: 8px; border: 1px solid var(--border); text-align: center; }
+.seat.available { background: rgba(47,78,163,0.08); }
+.seat.blocked { background: rgba(217,75,75,0.10); }
+.seat.reserved { background: rgba(244,183,64,0.12); }
+.seat.occupied { background: rgba(30,169,124,0.12); }

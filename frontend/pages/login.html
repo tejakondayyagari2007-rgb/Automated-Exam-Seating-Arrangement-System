@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Exam Seating System | Login</title>
+    <link rel="stylesheet" href="/static/css/login.css" />
+    <link rel="stylesheet" href="/static/css/global.css" />
+</head>
+<body>
+    <div class="login-card">
+        <h1>Exam Seating System</h1>
+        <p>Secure access for administrators, teachers and students</p>
+        <form id="login-form" class="form-grid">
+            <input type="text" id="username" placeholder="Username or email" required />
+            <input type="password" id="password" placeholder="Password" required />
+            <select id="role">
+                <option value="ADMIN">Admin</option>
+                <option value="TEACHER">Teacher</option>
+                <option value="STUDENT">Student</option>
+            </select>
+            <button type="submit" class="primary-btn">Login</button>
+        </form>
+    </div>
+    <div id="toast-container"></div>
+    <script src="/static/js/api.js"></script>
+    <script src="/static/js/auth.js"></script>
+</body>
+</html>

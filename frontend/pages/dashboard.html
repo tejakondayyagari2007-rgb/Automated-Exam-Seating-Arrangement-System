@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Dashboard</title>
+    <link rel="stylesheet" href="/static/css/global.css" />
+    <link rel="stylesheet" href="/static/css/dashboard.css" />
+</head>
+<body>
+    <div class="app-shell">
+        <aside class="sidebar">
+            <div class="brand">SeatingSystem</div>
+            <nav>
+                <a class="active" href="/dashboard">Dashboard</a>
+                <a href="/students">Students</a>
+                <a href="/teachers">Teachers</a>
+                <a href="/rooms">Rooms</a>
+                <a href="/subjects">Subjects</a>
+                <a href="/exams">Exams</a>
+                <a href="/timetable">Timetable</a>
+                <a href="/seating">Seating</a>
+                <a href="/attendance">Attendance</a>
+                <a href="/reports">Reports</a>
+                <a href="/notifications">Notifications</a>
+                <a href="/settings">Settings</a>
+            </nav>
+        </aside>
+        <main class="content">
+            <div class="topbar">
+                <h2>Dashboard</h2>
+                <div class="topbar-right">
+                    <button class="secondary-btn" onclick="setTheme(!document.body.classList.contains('dark-mode'))">Dark Mode</button>
+                    <span data-user-name></span>
+                    <button class="primary-btn" onclick="logoutUser()">Logout</button>
+                </div>
+            </div>
+
+            <div class="card-grid" id="stats-grid"></div>
+            <div class="row" style="margin-top: 24px;">
+                <section class="card" style="flex: 1 1 380px; min-width: 260px;">
+                    <h3>Recent Exams</h3>
+                    <div id="recent-exams"></div>
+                </section>
+                <section class="card" style="flex: 1 1 380px; min-width: 260px;">
+                    <h3>Recent Activity</h3>
+                    <div id="recent-activity"></div>
+                </section>
+            </div>
+        </main>
+    </div>
+    <div id="toast-container"></div>
+    <script src="/static/js/api.js"></script>
+    <script src="/static/js/auth.js"></script>
+    <script src="/static/js/common.js"></script>
+    <script>
+        function renderStatCards(entries) {
+            const grid = document.getElementById('stats-grid');
+            grid.replaceChildren();
+            entries.forEach(([label, value]) => {
+                const card = document.createElement('div');
+                card.className = 'card stat-card';
+                const title = document.createElement('div');
+                title.className = 'label';
+                title.textContent = label;
+                const count = document.createElement('div');
+                count.className = 'value';
+                count.textContent = value;
+                card.append(title, count);
+                grid.appendChild(card);
+            });
+        }
+
+        function renderRecentExams(exams) {
+            const container = document.getElementById('recent-exams');
+            container.replaceChildren();
+            exams.forEach((exam) => {
+                const item = document.createElement('div');
+                item.className = 'list-item';
+                const name = document.createElement('strong');
+                name.textContent = exam.name || '';
+                const details = document.createElement('small');
+                details.textContent = `${exam.exam_code || ''} • ${exam.date_value || ''}`;
+                item.append(name, document.createElement('br'), details);
+                container.appendChild(item);
+            });
+            if (!exams.length) container.textContent = 'No exam details are available.';
+        }
+
+        function renderRecentActivity(entries) {
+            const container = document.getElementById('recent-activity');
+            container.replaceChildren();
+            entries.forEach((entry) => {
+                const item = document.createElement('div');
+                item.className = 'list-item';
+                const action = document.createElement('strong');
+                action.textContent = entry.action || '';
+                const details = document.createElement('small');
+                details.textContent = entry.description || '';
+                item.append(action, document.createElement('br'), details);
+                container.appendChild(item);
+            });
+            if (!entries.length) container.textContent = 'No recent activity.';
+        }
+
+        async function loadDashboard(user) {
+            try {
+                const response = await apiRequest('/api/dashboard');
+                const stats = response.stats || {};
+                let statCards;
+                if (user.role === 'STUDENT') {
+                    statCards = [
+                        ['Upcoming Exams', stats.upcoming_exams || 0],
+                        ['Published Seats', stats.published_seats || 0],
+                        ['Timetable Entries', stats.timetable_entries || 0],
+                    ];
+                    const profile = document.createElement('p');
+                    profile.textContent = `Welcome, ${response.student.name} (${response.student.roll_no}).`;
+                    document.querySelector('.card-grid').before(profile);
+                } else if (user.role === 'TEACHER') {
+                    statCards = [
+                        ['Exams', stats.total_exams || 0],
+                        ['Upcoming Exams', stats.upcoming_exams || 0],
+                        ['Published Arrangements', stats.published_arrangements || 0],
+                        ['Attendance %', `${stats.attendance_percentage || 0}%`],
+                    ];
+                } else {
+                    statCards = [
+                        ['Total Students', stats.total_students || 0],
+                        ['Total Teachers', stats.total_teachers || 0],
+                        ['Total Rooms', stats.total_rooms || 0],
+                        ['Total Seats', stats.total_seats || 0],
+                        ['Available Seats', stats.available_seats || 0],
+                        ['Upcoming Exams', stats.upcoming_exams || 0],
+                        ['Published Arrangements', stats.published_arrangements || 0],
+                        ['Attendance %', `${stats.attendance_percentage || 0}%`],
+                    ];
+                }
+                renderStatCards(statCards);
+                renderRecentExams(response.recent_exams || []);
+                const activityPanel = document.getElementById('recent-activity').closest('section');
+                activityPanel.hidden = user.role !== 'ADMIN';
+                renderRecentActivity(response.recent_activity || []);
+            } catch (error) {
+                showToast(error.message, 'error');
+            }
+        }
+
+        async function logoutUser() {
+            try {
+                await apiRequest('/api/auth/logout', { method: 'POST' });
+                window.location.href = '/login';
+            } catch (error) {
+                showToast('Logout failed', 'error');
+            }
+        }
+
+        checkAuth().then((user) => {
+            if (user) loadDashboard(user);
+        });
+    </script>
+</body>
+</html>

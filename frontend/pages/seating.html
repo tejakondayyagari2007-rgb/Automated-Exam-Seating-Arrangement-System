@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Seating</title>
+    <link rel="stylesheet" href="/static/css/global.css" />
+    <link rel="stylesheet" href="/static/css/seating.css" />
+    <link rel="stylesheet" href="/static/css/tables.css" />
+</head>
+<body>
+    <div class="app-shell">
+        <aside class="sidebar"><div class="brand">SeatingSystem</div><nav><a href="/dashboard">Dashboard</a><a href="/students">Students</a><a href="/teachers">Teachers</a><a href="/rooms">Rooms</a><a href="/subjects">Subjects</a><a href="/exams">Exams</a><a href="/timetable">Timetable</a><a class="active" href="/seating">Seating</a><a href="/attendance">Attendance</a><a href="/reports">Reports</a><a href="/notifications">Notifications</a><a href="/settings">Settings</a></nav></aside>
+        <main class="content"><div class="topbar"><h2>Seating Arrangement</h2><div class="topbar-right"><button class="secondary-btn" onclick="setTheme(!document.body.classList.contains('dark-mode'))">Dark Mode</button><button class="primary-btn" onclick="logoutUser()">Logout</button></div></div>
+            <section class="card" data-role-allow="ADMIN,TEACHER">
+                <h3>Generate Seating</h3>
+                <form id="seating-form" class="form-panel">
+                    <input type="number" name="exam_id" placeholder="Exam ID" required />
+                    <div class="form-actions wide"><button type="submit" class="primary-btn">Generate Arrangement</button></div>
+                </form>
+            </section>
+            <section class="card" id="sample-seating-map" style="margin-top: 20px;">
+                <h3>Seating Map</h3>
+                <div class="seat-grid">
+                    <div class="seat available">A01</div>
+                    <div class="seat available">A02</div>
+                    <div class="seat blocked">A03</div>
+                    <div class="seat available">A04</div>
+                    <div class="seat reserved">A05</div>
+                    <div class="seat occupied">A06</div>
+                </div>
+            </section>
+            <section class="card" id="management-seating-details" hidden style="margin-top: 20px;">
+                <h3>Generated Exam Assignments</h3>
+                <p id="management-seating-status"></p>
+                <div class="table-wrap">
+                    <table>
+                        <thead><tr><th>Roll Number</th><th>Student</th><th>Room</th><th>Seat</th></tr></thead>
+                        <tbody id="management-seating-body"></tbody>
+                    </table>
+                </div>
+                <button type="button" class="primary-btn" id="publish-arrangement" data-admin-only hidden>
+                    Publish Arrangement
+                </button>
+            </section>
+            <section class="card" id="teacher-seating-details" hidden style="margin-top: 20px;">
+                <h3>Assigned Seating Details</h3>
+                <div class="table-wrap">
+                    <table>
+                        <thead><tr><th>Exam</th><th>Date</th><th>Arrangement</th><th>Roll Number</th><th>Student</th><th>Room</th><th>Seat</th></tr></thead>
+                        <tbody id="teacher-seating-body"></tbody>
+                    </table>
+                </div>
+            </section>
+            <section class="card" id="student-seating-details" hidden style="margin-top: 20px;">
+                <h3>Published Seat Assignments</h3>
+                <div id="student-seating-body"></div>
+            </section>
+        </main>
+    </div>
+    <div id="toast-container"></div>
+    <script src="/static/js/api.js"></script>
+    <script src="/static/js/auth.js"></script>
+    <script src="/static/js/common.js"></script>
+    <script>
+        let generatedArrangementId = null;
+
+        function showGeneratedArrangement(result) {
+            generatedArrangementId = result.arrangement_id;
+            const details = document.getElementById('management-seating-details');
+            const body = document.getElementById('management-seating-body');
+            const status = document.getElementById('management-seating-status');
+            const publishButton = document.getElementById('publish-arrangement');
+            body.replaceChildren();
+            result.assignments.forEach((assignment) => {
+                const row = document.createElement('tr');
+                [
+                    assignment.roll_no,
+                    assignment.student_name,
+                    assignment.room_number || assignment.room_id,
+                    assignment.seat_number,
+                ]
+                    .forEach((value) => {
+                        const cell = document.createElement('td');
+                        cell.textContent = value == null ? '' : String(value);
+                        row.appendChild(cell);
+                    });
+                body.appendChild(row);
+            });
+            status.textContent = `${result.assignments.length} registered candidates assigned. Quality score: ${result.quality_score}.`;
+            details.hidden = false;
+            document.getElementById('sample-seating-map').hidden = true;
+            const user = getCurrentUser();
+            publishButton.hidden = !user || user.role !== 'ADMIN';
+            publishButton.disabled = false;
+            publishButton.textContent = 'Publish Arrangement';
+        }
+
+        document.getElementById('seating-form').addEventListener('submit', async (event) => {
+            event.preventDefault();
+            const payload = Object.fromEntries(new FormData(event.target).entries());
+            try {
+                const response = await apiRequest('/api/seating/generate', { method: 'POST', body: payload });
+                if (response.success) {
+                    showGeneratedArrangement(response.result);
+                    showToast('Arrangement generated successfully.', 'success');
+                } else {
+                    showToast(response.message || 'Generation failed.', 'error');
+                }
+            } catch (error) {
+                showToast(error.message, 'error');
+            }
+        });
+        document.getElementById('publish-arrangement').addEventListener('click', async () => {
+            if (!generatedArrangementId) return;
+            try {
+                await apiRequest('/api/seating/publish', {
+                    method: 'POST',
+                    body: { arrangement_id: generatedArrangementId },
+                });
+                const button = document.getElementById('publish-arrangement');
+                button.disabled = true;
+                button.textContent = 'Published';
+                document.getElementById('management-seating-status').textContent += ' Published.';
+                showToast('Arrangement published successfully.', 'success');
+            } catch (error) {
+                showToast(error.message, 'error');
+            }
+        });
+        async function logoutUser() { try { await apiRequest('/api/auth/logout', { method: 'POST' }); window.location.href = '/login'; } catch (error) { showToast('Logout failed', 'error'); } }
+        async function loadStudentSeating() {
+            try {
+                const response = await apiRequest('/api/seating');
+                const details = document.getElementById('student-seating-details');
+                const body = document.getElementById('student-seating-body');
+                details.hidden = false;
+                document.getElementById('sample-seating-map').hidden = true;
+                const assignments = response.arrangements || [];
+                body.replaceChildren();
+                if (!assignments.length) {
+                    body.textContent = 'No published seating assignments are available.';
+                    return;
+                }
+                assignments.forEach((assignment) => {
+                    const item = document.createElement('div');
+                    item.className = 'list-item';
+                    item.textContent = `${assignment.exam_name} (${assignment.exam_code}) - ${assignment.date_value}; Room ${assignment.room_number || assignment.room_id}, Seat ${assignment.seat_number}`;
+                    body.appendChild(item);
+                });
+            } catch (error) {
+                showToast(error.message, 'error');
+            }
+        }
+        async function loadTeacherSeating() {
+            try {
+                const response = await apiRequest('/api/seating');
+                const details = document.getElementById('teacher-seating-details');
+                const body = document.getElementById('teacher-seating-body');
+                const arrangements = response.arrangements || [];
+                const assignments = response.assignments || [];
+                body.replaceChildren();
+                if (!assignments.length) {
+                    const row = document.createElement('tr');
+                    const cell = document.createElement('td');
+                    cell.colSpan = 7;
+                    cell.textContent = arrangements.length
+                        ? 'No seat assignments are available for these arrangements.'
+                        : 'No seating arrangements are available for your assigned exams.';
+                    row.appendChild(cell);
+                    body.appendChild(row);
+                } else {
+                    assignments.forEach((assignment) => {
+                        const row = document.createElement('tr');
+                        [
+                            assignment.exam_name,
+                            formatDate(assignment.date_value),
+                            assignment.status,
+                            assignment.roll_no,
+                            assignment.student_name,
+                            assignment.room_number || assignment.room_id,
+                            assignment.seat_number,
+                        ].forEach((value) => {
+                            const cell = document.createElement('td');
+                            cell.textContent = value == null ? '' : String(value);
+                            row.appendChild(cell);
+                        });
+                        body.appendChild(row);
+                    });
+                }
+                details.hidden = false;
+                document.getElementById('sample-seating-map').hidden = true;
+            } catch (error) {
+                showToast(error.message, 'error');
+            }
+        }
+        checkAuth().then((user) => {
+            if (user && user.role === 'STUDENT') loadStudentSeating();
+            if (user && user.role === 'TEACHER') loadTeacherSeating();
+        });
+    </script>
+</body>
+</html>

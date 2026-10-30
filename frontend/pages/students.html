@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Students</title>
+    <link rel="stylesheet" href="/static/css/global.css" />
+    <link rel="stylesheet" href="/static/css/tables.css" />
+    <link rel="stylesheet" href="/static/css/forms.css" />
+</head>
+<body>
+    <div class="app-shell">
+        <aside class="sidebar">
+            <div class="brand">SeatingSystem</div>
+            <nav>
+                <a href="/dashboard">Dashboard</a>
+                <a class="active" href="/students">Students</a>
+                <a href="/teachers">Teachers</a>
+                <a href="/rooms">Rooms</a>
+                <a href="/subjects">Subjects</a>
+                <a href="/exams">Exams</a>
+                <a href="/timetable">Timetable</a>
+                <a href="/seating">Seating</a>
+                <a href="/attendance">Attendance</a>
+                <a href="/reports">Reports</a>
+                <a href="/notifications">Notifications</a>
+                <a href="/settings">Settings</a>
+            </nav>
+        </aside>
+        <main class="content">
+            <div class="topbar">
+                <h2>Student Management</h2>
+                <div class="topbar-right">
+                    <button class="secondary-btn" onclick="setTheme(!document.body.classList.contains('dark-mode'))">Dark Mode</button>
+                    <button class="primary-btn" onclick="logoutUser()">Logout</button>
+                </div>
+            </div>
+
+            <section class="card" data-admin-only>
+                <h3>Add Student</h3>
+                <form id="student-form" class="form-panel">
+                    <input type="text" name="roll_no" placeholder="Roll number" required />
+                    <input type="text" name="name" placeholder="Name" required />
+                    <input type="email" name="email" placeholder="Email" required />
+                    <input type="text" name="phone" placeholder="Phone" />
+                    <input type="number" name="department_id" placeholder="Department ID" />
+                    <input type="number" name="section_id" placeholder="Section ID" />
+                    <input type="number" name="year" placeholder="Year" />
+                    <div class="form-actions wide">
+                        <button type="submit" class="primary-btn">Save Student</button>
+                    </div>
+                </form>
+            </section>
+
+            <section class="card" style="margin-top: 24px;">
+                <h3>Students</h3>
+                <div class="table-wrap">
+                    <table>
+                        <thead><tr><th>Roll</th><th>Name</th><th>Email</th><th>Department</th><th>Year</th><th data-admin-only>Actions</th></tr></thead>
+                        <tbody id="students-body"></tbody>
+                    </table>
+                </div>
+            </section>
+        </main>
+    </div>
+    <div id="toast-container"></div>
+    <script src="/static/js/api.js"></script>
+    <script src="/static/js/auth.js"></script>
+    <script src="/static/js/common.js"></script>
+    <script>
+        async function loadStudents() {
+            try {
+                const response = await apiRequest('/api/students');
+                const rows = response.students || [];
+                const isAdmin = getCurrentUser().role === 'ADMIN';
+                document.getElementById('students-body').innerHTML = rows.map((student) => `
+                    <tr>
+                        <td>${student.roll_no}</td>
+                        <td>${student.name}</td>
+                        <td>${student.email}</td>
+                        <td>${student.department_name || student.department_id || '—'}</td>
+                        <td>${student.year || '—'}</td>
+                        ${isAdmin ? `<td><button class="secondary-btn" onclick="deleteStudent(${student.id})">Delete</button></td>` : ''}
+                    </tr>
+                `).join('');
+            } catch (error) {
+                showToast(error.message, 'error');
+            }
+        }
+
+        document.getElementById('student-form').addEventListener('submit', async (event) => {
+            event.preventDefault();
+            const form = event.target;
+            const payload = Object.fromEntries(new FormData(form).entries());
+            try {
+                await apiRequest('/api/students', { method: 'POST', body: payload });
+                form.reset();
+                loadStudents();
+                showToast('Student saved successfully.', 'success');
+            } catch (error) {
+                showToast(error.message, 'error');
+            }
+        });
+
+        async function deleteStudent(id) {
+            try {
+                await apiRequest(`/api/students/${id}`, { method: 'DELETE' });
+                loadStudents();
+                showToast('Student deleted.', 'success');
+            } catch (error) {
+                showToast(error.message, 'error');
+            }
+        }
+
+        async function logoutUser() {
+            try {
+                await apiRequest('/api/auth/logout', { method: 'POST' });
+                window.location.href = '/login';
+            } catch (error) {
+                showToast('Logout failed', 'error');
+            }
+        }
+
+        checkAuth().then((user) => {
+            if (user) loadStudents();
+        });
+    </script>
+</body>
+</html>
