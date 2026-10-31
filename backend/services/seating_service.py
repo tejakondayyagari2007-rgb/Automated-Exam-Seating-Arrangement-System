@@ -88,9 +88,14 @@ def build_exam_assignments(students, rooms, unavailable_seats):
 
 
 def generate_exam_arrangement(exam_id, room_ids=None):
-    exam = fetch_one("SELECT id FROM exams WHERE id = %s", (exam_id,))
+    exam = fetch_one(
+        "SELECT id, date_value, start_time, end_time FROM exams WHERE id = %s",
+        (exam_id,),
+    )
     if not exam:
         raise ValueError("Exam not found.")
+    if not all(exam.get(field) is not None for field in ("date_value", "start_time", "end_time")):
+        raise ValueError("The exam is missing its scheduled date or time.")
 
     students = fetch_all(
         """
@@ -116,6 +121,24 @@ def generate_exam_arrangement(exam_id, room_ids=None):
     if len(set(selected_room_ids)) != len(selected_room_ids):
         raise ValueError("A room may only be selected once.")
 
+    booked_rooms = fetch_all(
+        """
+        SELECT DISTINCT room_id
+        FROM timetable
+        WHERE exam_date = %s AND exam_id != %s
+            AND start_time < %s AND end_time > %s
+        """,
+        (
+            exam["date_value"],
+            exam_id,
+            exam["end_time"],
+            exam["start_time"],
+        ),
+    )
+    booked_room_ids = {row["room_id"] for row in booked_rooms}
+    if selected_room_ids and booked_room_ids.intersection(selected_room_ids):
+        raise ValueError("A selected room is booked for an overlapping exam.")
+
     room_query = "SELECT * FROM rooms WHERE status = 'active'"
     room_params = ()
     if selected_room_ids:
@@ -126,6 +149,7 @@ def generate_exam_arrangement(exam_id, room_ids=None):
     rooms = fetch_all(room_query, room_params)
     if selected_room_ids and len(rooms) != len(selected_room_ids):
         raise ValueError("One or more selected rooms are unavailable.")
+    rooms = [room for room in rooms if room["id"] not in booked_room_ids]
 
     unavailable_seats = {}
     if rooms:
@@ -183,6 +207,117 @@ def generate_exam_arrangement(exam_id, room_ids=None):
         "assignments": assignments,
         "quality_score": score,
     }
+
+
+def move_student_assignment(assignment_id, room_id, seat_number):
+    assignment = fetch_one(
+        """
+        SELECT sa.id, sa.arrangement_id, sa.room_id, arr.status AS arrangement_status
+        FROM seat_assignments sa
+        INNER JOIN seating_arrangements arr ON arr.id = sa.arrangement_id
+        WHERE sa.id = %s
+        """,
+        (assignment_id,),
+    )
+    if not assignment:
+        return "assignment_not_found"
+    if assignment["arrangement_status"] == "LOCKED":
+        return "arrangement_locked"
+
+    room = fetch_one(
+        "SELECT id, room_number, `rows`, `columns`, status FROM rooms WHERE id = %s",
+        (room_id,),
+    )
+    if not room:
+        return "room_not_found"
+    if str(room.get("status") or "").strip().lower() != "active":
+        return "room_inactive"
+
+    seat_number = seat_number.strip()
+    room_prefix = f"{room['room_number']}-"
+    local_seat_number = (
+        seat_number[len(room_prefix):]
+        if seat_number.startswith(room_prefix)
+        else seat_number
+    )
+    row_count = int(room.get("rows") or 0)
+    column_count = int(room.get("columns") or 0)
+    seat_position = next(
+        (
+            (row, column)
+            for row in range(1, row_count + 1)
+            for column in range(1, column_count + 1)
+            if f"{chr(64 + row)}{column:02d}" == local_seat_number
+        ),
+        None,
+    )
+    if not seat_position:
+        return "invalid_seat"
+
+    seat = fetch_one(
+        """
+        SELECT row_no, column_no, status
+        FROM room_seats
+        WHERE room_id = %s AND seat_number = %s
+        """,
+        (room_id, local_seat_number),
+    )
+    if seat and str(seat.get("status") or "").strip().lower() != "available":
+        return "seat_unavailable"
+
+    row_no, column_no = seat_position
+    if seat:
+        if (
+            seat.get("row_no") is not None
+            and seat["row_no"] != row_no
+        ) or (
+            seat.get("column_no") is not None
+            and seat["column_no"] != column_no
+        ):
+            return "invalid_seat"
+
+    room_count = fetch_one(
+        """
+        SELECT COUNT(DISTINCT room_id) AS room_count
+        FROM seat_assignments
+        WHERE arrangement_id = %s
+        """,
+        (assignment["arrangement_id"],),
+    )
+    stored_seat_number = (
+        f"{room['room_number']}-{local_seat_number}"
+        if room_count["room_count"] > 1 or room_id != assignment["room_id"]
+        else local_seat_number
+    )
+    occupied = fetch_one(
+        """
+        SELECT id FROM seat_assignments
+        WHERE arrangement_id = %s AND room_id = %s AND id != %s
+            AND (seat_number = %s OR (row_no = %s AND column_no = %s))
+        LIMIT 1
+        """,
+        (
+            assignment["arrangement_id"],
+            room_id,
+            assignment_id,
+            stored_seat_number,
+            row_no,
+            column_no,
+        ),
+    )
+    if occupied:
+        return "seat_occupied"
+
+    execute(
+        """
+        UPDATE seat_assignments
+        SET room_id = %s, seat_number = %s, row_no = %s, column_no = %s,
+            updated_at = NOW()
+        WHERE id = %s
+        """,
+        (room_id, stored_seat_number, row_no, column_no, assignment_id),
+    )
+    return "moved"
 
 
 def swap_student_assignments(arrangement_id, first_student_id, second_student_id):

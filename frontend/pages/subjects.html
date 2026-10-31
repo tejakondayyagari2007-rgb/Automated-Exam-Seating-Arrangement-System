@@ -25,13 +25,30 @@
             try {
                 const response = await apiRequest('/api/subjects');
                 const isAdmin = getCurrentUser().role === 'ADMIN';
-                document.getElementById('subjects-body').innerHTML = (response.subjects || []).map((subject) => `
-                    <tr><td>${subject.name}</td><td>${subject.code}</td><td>${subject.credits}</td>${isAdmin ? `<td><button class="secondary-btn" onclick="deleteSubject(${subject.id})">Delete</button></td>` : ''}</tr>
-                `).join('');
+                const tableBody = document.getElementById('subjects-body');
+                tableBody.replaceChildren();
+                (response.subjects || []).forEach((subject) => {
+                    const row = document.createElement('tr');
+                    [subject.name, subject.code, subject.credits].forEach((value) => {
+                        const cell = document.createElement('td');
+                        cell.textContent = String(value);
+                        row.appendChild(cell);
+                    });
+                    if (isAdmin) {
+                        const actions = document.createElement('td');
+                        const button = document.createElement('button');
+                        button.className = 'secondary-btn';
+                        button.textContent = 'Delete';
+                        button.addEventListener('click', () => deleteSubject(subject.id));
+                        actions.appendChild(button);
+                        row.appendChild(actions);
+                    }
+                    tableBody.appendChild(row);
+                });
             } catch (error) { showToast(error.message, 'error'); }
         }
         document.getElementById('subject-form').addEventListener('submit', async (event) => { event.preventDefault(); const payload = Object.fromEntries(new FormData(event.target).entries()); try { await apiRequest('/api/subjects', { method: 'POST', body: payload }); event.target.reset(); loadSubjects(); showToast('Subject saved.', 'success'); } catch (error) { showToast(error.message, 'error'); } });
-        async function deleteSubject(id) { try { await apiRequest(`/api/subjects/${id}`, { method: 'DELETE' }); loadSubjects(); showToast('Subject deleted.', 'success'); } catch (error) { showToast(error.message, 'error'); } }
+        async function deleteSubject(id) { try { await apiRequest(`/api/subjects/${encodeURIComponent(id)}`, { method: 'DELETE' }); loadSubjects(); showToast('Subject deleted.', 'success'); } catch (error) { showToast(error.message, 'error'); } }
         async function logoutUser() { try { await apiRequest('/api/auth/logout', { method: 'POST' }); window.location.href = '/login'; } catch (error) { showToast('Logout failed', 'error'); } }
         checkAuth().then((user) => {
             if (user) loadSubjects();

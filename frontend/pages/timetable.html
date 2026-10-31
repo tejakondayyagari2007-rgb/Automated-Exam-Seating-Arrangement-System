@@ -24,9 +24,23 @@
         async function loadTimetable() {
             try {
                 const response = await apiRequest('/api/timetable');
-                document.getElementById('timetable-body').innerHTML = (response.timetable || []).map((item) => `
-                    <tr><td>${item.exam_name || item.exam_id}</td><td>${item.room_number || item.room_id}</td><td>${item.invigilator_name || item.invigilator_id}</td><td>${item.exam_date}</td><td>${item.start_time} - ${item.end_time}</td></tr>
-                `).join('');
+                const tableBody = document.getElementById('timetable-body');
+                tableBody.replaceChildren();
+                (response.timetable || []).forEach((item) => {
+                    const row = document.createElement('tr');
+                    [
+                        item.exam_name || item.exam_id,
+                        item.room_number || item.room_id,
+                        item.invigilator_name || item.invigilator_id,
+                        item.exam_date,
+                        `${item.start_time} - ${item.end_time}`,
+                    ].forEach((value) => {
+                        const cell = document.createElement('td');
+                        cell.textContent = String(value);
+                        row.appendChild(cell);
+                    });
+                    tableBody.appendChild(row);
+                });
             } catch (error) { showToast(error.message, 'error'); }
         }
         document.getElementById('timetable-form').addEventListener('submit', async (event) => { event.preventDefault(); const payload = Object.fromEntries(new FormData(event.target).entries()); try { await apiRequest('/api/timetable', { method: 'POST', body: payload }); event.target.reset(); loadTimetable(); showToast('Timetable saved.', 'success'); } catch (error) { showToast(error.message, 'error'); } });

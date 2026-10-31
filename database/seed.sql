@@ -2,9 +2,9 @@ INSERT INTO departments (name) VALUES ('CSE'), ('ECE'), ('EEE'), ('MECH'), ('CIV
 INSERT INTO sections (name) VALUES ('A'), ('B'), ('C');
 
 INSERT INTO users (name, username, email, password_hash, role) VALUES
-('System Admin', 'admin', 'admin@college.edu', 'REPLACE_WITH_ADMIN_HASH', 'ADMIN'),
-('Dr. Anita Rao', 'teacher1', 'teacher1@college.edu', 'REPLACE_WITH_TEACHER_HASH', 'TEACHER'),
-('Student Demo', 'student1', 'student1@college.edu', 'REPLACE_WITH_STUDENT_HASH', 'STUDENT');
+('System Admin', 'admin', 'admin@college.edu', 'scrypt:32768:8:1$6Ri7SG0MhOJ5Sv7I$d529525348b019b6f626b7a35c227c8b25a3d411e0856346da76f3a47f75684907a70374a103436f5b1f6848646488e9505250a80a03151d81208fd84adcb481', 'ADMIN'),
+('Dr. Anita Rao', 'teacher1', 'anita.rao@college.edu', 'scrypt:32768:8:1$xG6XlXixABLoAtGO$7ef498ce3dd7171dc104f8cca8769c78cf74435b7e4d7c226b3d46bdda543f05c623440afed85eca8a02700d849b7df76ce75fa43f65a80d9827149089fb0114', 'TEACHER'),
+('Student Demo', 'student1', 'aarav.mehta@college.edu', 'scrypt:32768:8:1$iZnJxb1K9rBv7jwa$ac9c980b463b7096e21dd095c5e5affd3e4905015b03564bef4d5bd95915507e7e435c97557d1a329eedca2770dc34103049d9a7528e9a47383211c50e85b84b', 'STUDENT');
 
 INSERT INTO subjects (name, code, credits) VALUES
 ('Data Structures', 'CSE201', 4),

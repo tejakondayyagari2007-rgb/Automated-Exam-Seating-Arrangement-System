@@ -37,9 +37,26 @@
             try {
                 const response = await apiRequest('/api/teachers');
                 const isAdmin = getCurrentUser().role === 'ADMIN';
-                document.getElementById('teachers-body').innerHTML = (response.teachers || []).map((teacher) => `
-                    <tr><td>${teacher.employee_id}</td><td>${teacher.name}</td><td>${teacher.email}</td><td>${teacher.designation}</td>${isAdmin ? `<td><button class="secondary-btn" onclick="deleteTeacher(${teacher.id})">Delete</button></td>` : ''}</tr>
-                `).join('');
+                const tableBody = document.getElementById('teachers-body');
+                tableBody.replaceChildren();
+                (response.teachers || []).forEach((teacher) => {
+                    const row = document.createElement('tr');
+                    [teacher.employee_id, teacher.name, teacher.email, teacher.designation].forEach((value) => {
+                        const cell = document.createElement('td');
+                        cell.textContent = String(value);
+                        row.appendChild(cell);
+                    });
+                    if (isAdmin) {
+                        const actions = document.createElement('td');
+                        const button = document.createElement('button');
+                        button.className = 'secondary-btn';
+                        button.textContent = 'Delete';
+                        button.addEventListener('click', () => deleteTeacher(teacher.id));
+                        actions.appendChild(button);
+                        row.appendChild(actions);
+                    }
+                    tableBody.appendChild(row);
+                });
             } catch (error) {
                 showToast(error.message, 'error');
             }
@@ -60,7 +77,7 @@
 
         async function deleteTeacher(id) {
             try {
-                await apiRequest(`/api/teachers/${id}`, { method: 'DELETE' });
+                await apiRequest(`/api/teachers/${encodeURIComponent(id)}`, { method: 'DELETE' });
                 loadTeachers();
                 showToast('Teacher deleted.', 'success');
             } catch (error) {

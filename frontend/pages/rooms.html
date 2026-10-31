@@ -25,9 +25,26 @@
             try {
                 const response = await apiRequest('/api/rooms');
                 const isAdmin = getCurrentUser().role === 'ADMIN';
-                document.getElementById('rooms-body').innerHTML = (response.rooms || []).map((room) => `
-                    <tr><td>${room.room_number}</td><td>${room.building}</td><td>${room.rows} x ${room.columns}</td><td>${room.capacity}</td>${isAdmin ? `<td><button class="secondary-btn" onclick="deleteRoom(${room.id})">Delete</button></td>` : ''}</tr>
-                `).join('');
+                const tableBody = document.getElementById('rooms-body');
+                tableBody.replaceChildren();
+                (response.rooms || []).forEach((room) => {
+                    const row = document.createElement('tr');
+                    [room.room_number, room.building, `${room.rows} x ${room.columns}`, room.capacity].forEach((value) => {
+                        const cell = document.createElement('td');
+                        cell.textContent = String(value);
+                        row.appendChild(cell);
+                    });
+                    if (isAdmin) {
+                        const actions = document.createElement('td');
+                        const button = document.createElement('button');
+                        button.className = 'secondary-btn';
+                        button.textContent = 'Delete';
+                        button.addEventListener('click', () => deleteRoom(room.id));
+                        actions.appendChild(button);
+                        row.appendChild(actions);
+                    }
+                    tableBody.appendChild(row);
+                });
             } catch (error) { showToast(error.message, 'error'); }
         }
 
@@ -38,7 +55,7 @@
         });
 
         async function deleteRoom(id) {
-            try { await apiRequest(`/api/rooms/${id}`, { method: 'DELETE' }); loadRooms(); showToast('Room deleted.', 'success'); } catch (error) { showToast(error.message, 'error'); }
+            try { await apiRequest(`/api/rooms/${encodeURIComponent(id)}`, { method: 'DELETE' }); loadRooms(); showToast('Room deleted.', 'success'); } catch (error) { showToast(error.message, 'error'); }
         }
 
         async function logoutUser() { try { await apiRequest('/api/auth/logout', { method: 'POST' }); window.location.href = '/login'; } catch (error) { showToast('Logout failed', 'error'); } }

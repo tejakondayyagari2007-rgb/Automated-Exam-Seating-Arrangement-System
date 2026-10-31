@@ -73,16 +73,32 @@
                 const response = await apiRequest('/api/students');
                 const rows = response.students || [];
                 const isAdmin = getCurrentUser().role === 'ADMIN';
-                document.getElementById('students-body').innerHTML = rows.map((student) => `
-                    <tr>
-                        <td>${student.roll_no}</td>
-                        <td>${student.name}</td>
-                        <td>${student.email}</td>
-                        <td>${student.department_name || student.department_id || '—'}</td>
-                        <td>${student.year || '—'}</td>
-                        ${isAdmin ? `<td><button class="secondary-btn" onclick="deleteStudent(${student.id})">Delete</button></td>` : ''}
-                    </tr>
-                `).join('');
+                const tableBody = document.getElementById('students-body');
+                tableBody.replaceChildren();
+                rows.forEach((student) => {
+                    const row = document.createElement('tr');
+                    [
+                        student.roll_no,
+                        student.name,
+                        student.email,
+                        student.department_name || student.department_id || '—',
+                        student.year || '—',
+                    ].forEach((value) => {
+                        const cell = document.createElement('td');
+                        cell.textContent = String(value);
+                        row.appendChild(cell);
+                    });
+                    if (isAdmin) {
+                        const actions = document.createElement('td');
+                        const button = document.createElement('button');
+                        button.className = 'secondary-btn';
+                        button.textContent = 'Delete';
+                        button.addEventListener('click', () => deleteStudent(student.id));
+                        actions.appendChild(button);
+                        row.appendChild(actions);
+                    }
+                    tableBody.appendChild(row);
+                });
             } catch (error) {
                 showToast(error.message, 'error');
             }
@@ -104,7 +120,7 @@
 
         async function deleteStudent(id) {
             try {
-                await apiRequest(`/api/students/${id}`, { method: 'DELETE' });
+                await apiRequest(`/api/students/${encodeURIComponent(id)}`, { method: 'DELETE' });
                 loadStudents();
                 showToast('Student deleted.', 'success');
             } catch (error) {

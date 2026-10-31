@@ -1,3 +1,4 @@
+from datetime import date, time
 from unittest.mock import patch
 
 import pytest
@@ -439,13 +440,24 @@ def test_exam_seating_uses_registered_candidates_and_excludes_blocked_reserved_s
     monkeypatch.setattr(
         seating_service,
         "fetch_one",
-        lambda query, params=(): {"id": 4} if "FROM exams" in query else None,
+        lambda query, params=(): (
+            {
+                "id": 4,
+                "date_value": date(2026, 11, 5),
+                "start_time": time(9, 0),
+                "end_time": time(10, 0),
+            }
+            if "FROM exams" in query
+            else None
+        ),
     )
 
     def fetch_all(query, params=()):
         if "FROM exam_students es" in query:
             assert params == (4,)
             return candidates
+        if "FROM timetable" in query:
+            return []
         if "FROM rooms" in query:
             return rooms
         if "FROM room_seats" in query:
@@ -507,6 +519,162 @@ def test_exam_seating_uses_local_labels_when_one_room_is_selected():
     assert assignments[0]["room_number"] == "101"
 
 
+def configure_timetable_endpoint(monkeypatch, room_conflict=False, invigilator_conflict=False):
+    from backend.routes import timetable_routes
+
+    queries = []
+    writes = []
+
+    def fetch_one(query, params=()):
+        queries.append((query, params))
+        if "FROM exams" in query:
+            return {"id": params[0]}
+        if "FROM rooms" in query:
+            return {"id": params[0]}
+        if "FROM teachers" in query:
+            return {"id": params[0]}
+        if "WHERE room_id" in query:
+            return {"id": 99} if room_conflict else None
+        if "WHERE invigilator_id" in query:
+            return {"id": 100} if invigilator_conflict else None
+        raise AssertionError(f"Unexpected timetable query: {query}")
+
+    monkeypatch.setattr(timetable_routes, "fetch_one", fetch_one)
+    monkeypatch.setattr(
+        timetable_routes,
+        "execute",
+        lambda query, params=(): writes.append((query, params)),
+    )
+    return queries, writes
+
+
+TIMETABLE_PAYLOAD = {
+    "exam_id": 2,
+    "room_id": 3,
+    "invigilator_id": 4,
+    "exam_date": "2026-11-05",
+    "start_time": "09:00",
+    "end_time": "10:00",
+}
+
+
+def test_timetable_rejects_same_room_overlapping_exam(client, monkeypatch):
+    _, writes = configure_timetable_endpoint(monkeypatch, room_conflict=True)
+    sign_in(client, "ADMIN")
+
+    response = client.post("/api/timetable", json=TIMETABLE_PAYLOAD)
+
+    assert response.status_code == 409
+    assert response.get_json()["message"] == "The room is already booked during this time."
+    assert writes == []
+
+
+def test_timetable_rejects_same_invigilator_overlapping_exam(client, monkeypatch):
+    _, writes = configure_timetable_endpoint(monkeypatch, invigilator_conflict=True)
+    sign_in(client, "ADMIN")
+
+    response = client.post("/api/timetable", json=TIMETABLE_PAYLOAD)
+
+    assert response.status_code == 409
+    assert "invigilator is already assigned" in response.get_json()["message"]
+    assert writes == []
+
+
+def test_timetable_allows_non_overlapping_schedule(client, monkeypatch):
+    queries, writes = configure_timetable_endpoint(monkeypatch)
+    sign_in(client, "ADMIN")
+
+    response = client.post("/api/timetable", json=TIMETABLE_PAYLOAD)
+
+    assert response.status_code == 200
+    assert len(writes) == 1
+    assert writes[0][1] == (2, 3, 4, date(2026, 11, 5), time(9, 0), time(10, 0))
+    conflict_queries = [query for query, _ in queries if "FROM timetable" in query]
+    assert len(conflict_queries) == 2
+    assert all("%s" in query for query in conflict_queries)
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("exam_date", "not-a-date", "Enter a valid exam date"),
+        ("start_time", "not-a-time", "Enter a valid exam date"),
+        ("end_time", "08:00", "End time must be later"),
+    ],
+)
+def test_timetable_rejects_invalid_date_or_time(client, monkeypatch, field, value, message):
+    _, writes = configure_timetable_endpoint(monkeypatch)
+    sign_in(client, "ADMIN")
+    payload = {**TIMETABLE_PAYLOAD, field: value}
+
+    response = client.post("/api/timetable", json=payload)
+
+    assert response.status_code == 400
+    assert message in response.get_json()["message"]
+    assert writes == []
+
+
+def test_seating_generation_excludes_rooms_booked_for_overlapping_exams(app, monkeypatch):
+    import sqlite3
+    from datetime import date, time
+    from backend.services import seating_service
+
+    candidates = [
+        {"id": 11, "name": "Student A", "roll_no": "A11", "status": "active"},
+        {"id": 12, "name": "Student B", "roll_no": "B12", "status": "active"},
+    ]
+    rooms = [
+        {"id": 1, "room_number": "101", "rows": 1, "columns": 2, "capacity": 2},
+        {"id": 2, "room_number": "102", "rows": 1, "columns": 2, "capacity": 2},
+        {"id": 3, "room_number": "103", "rows": 1, "columns": 2, "capacity": 2},
+    ]
+    inserted = []
+    queries = []
+
+    monkeypatch.setattr(seating_service, "get_db", lambda: sqlite3.connect(":memory:"))
+    monkeypatch.setattr(
+        seating_service,
+        "fetch_one",
+        lambda query, params=(): {
+            "id": 4,
+            "date_value": date(2026, 11, 5),
+            "start_time": time(9, 0),
+            "end_time": time(10, 0),
+        } if "FROM exams" in query else None,
+    )
+
+    def fetch_all(query, params=()):
+        queries.append((query, params))
+        if "FROM exam_students es" in query:
+            return candidates
+        if "FROM timetable" in query:
+            return [{"room_id": 1}]
+        if "FROM rooms" in query:
+            return rooms
+        if "FROM room_seats" in query:
+            return []
+        raise AssertionError(f"Unexpected query: {query}")
+
+    def execute(query, params=()):
+        inserted.append((query, params))
+        return 81 if "INSERT INTO seating_arrangements" in query else 1
+
+    monkeypatch.setattr(seating_service, "fetch_all", fetch_all)
+    monkeypatch.setattr(seating_service, "execute", execute)
+
+    with app.app_context():
+        result = seating_service.generate_exam_arrangement(4)
+
+    assert {row["room_id"] for row in result["assignments"]} == {2}
+    assert all(row["room_id"] != 1 for row in result["assignments"])
+    booking_query, booking_params = next(
+        (query, params) for query, params in queries if "FROM timetable" in query
+    )
+    assert "exam_id != %s" in booking_query
+    assert booking_params == (date(2026, 11, 5), 4, time(10, 0), time(9, 0))
+    assert len(inserted) == 3
+
+
 def test_seat_swap_updates_both_assignment_locations(app, monkeypatch):
     import sqlite3
     from backend.services import seating_service
@@ -542,6 +710,113 @@ def test_seat_swap_updates_both_assignment_locations(app, monkeypatch):
     assert calls[0][1] == ("__sw_101", 101)
     assert calls[1][1] == (1, 1, 1, "101-A01", 102)
     assert calls[2][1] == (2, 1, 1, "102-A01", 101)
+
+
+def configure_seat_move_service(
+    monkeypatch,
+    assignment_exists=True,
+    room=None,
+    room_missing=False,
+    seat=None,
+    occupied=False,
+):
+    from backend.services import seating_service
+
+    room = room or {
+        "id": 1,
+        "room_number": "101",
+        "rows": 2,
+        "columns": 2,
+        "status": "active",
+    }
+    if seat == "available":
+        seat = {"row_no": 1, "column_no": 2, "status": "available"}
+    elif seat == "unavailable":
+        seat = {"row_no": 1, "column_no": 2, "status": "blocked"}
+    writes = []
+
+    def fetch_one(query, params=()):
+        if "FROM seat_assignments sa" in query:
+            return (
+                {
+                    "id": 20,
+                    "arrangement_id": 9,
+                    "room_id": 1,
+                    "arrangement_status": "GENERATED",
+                }
+                if assignment_exists
+                else None
+            )
+        if "FROM rooms" in query:
+            return None if room_missing else room
+        if "FROM room_seats" in query:
+            return seat
+        if "COUNT(DISTINCT room_id)" in query:
+            return {"room_count": 1}
+        if "FROM seat_assignments" in query:
+            return {"id": 21} if occupied else None
+        raise AssertionError(f"Unexpected seat move query: {query}")
+
+    monkeypatch.setattr(seating_service, "fetch_one", fetch_one)
+    monkeypatch.setattr(
+        seating_service,
+        "execute",
+        lambda query, params=(): writes.append((query, params)),
+    )
+    return writes
+
+
+def test_seat_move_rejects_missing_assignment_room_and_invalid_seat(monkeypatch):
+    from backend.services import seating_service
+
+    configure_seat_move_service(monkeypatch, assignment_exists=False)
+    assert seating_service.move_student_assignment(20, 1, "A02") == "assignment_not_found"
+
+    configure_seat_move_service(monkeypatch, room_missing=True)
+    assert seating_service.move_student_assignment(20, 999, "A02") == "room_not_found"
+
+    configure_seat_move_service(monkeypatch)
+    assert seating_service.move_student_assignment(20, 1, "Z99") == "invalid_seat"
+
+    configure_seat_move_service(
+        monkeypatch,
+        room={"id": 1, "room_number": "101", "rows": 2, "columns": 2, "status": "inactive"},
+    )
+    assert seating_service.move_student_assignment(20, 1, "A02") == "room_inactive"
+
+
+@pytest.mark.parametrize(
+    ("seat_state", "occupied", "expected"),
+    [
+        ("unavailable", False, "seat_unavailable"),
+        ("available", True, "seat_occupied"),
+    ],
+)
+def test_seat_move_rejects_unavailable_or_occupied_seat(
+    monkeypatch, seat_state, occupied, expected
+):
+    from backend.services import seating_service
+
+    writes = configure_seat_move_service(
+        monkeypatch,
+        seat=seat_state,
+        occupied=occupied,
+    )
+
+    assert seating_service.move_student_assignment(20, 1, "A02") == expected
+    assert writes == []
+
+
+def test_seat_move_updates_room_seat_and_coordinates(monkeypatch):
+    from backend.services import seating_service
+
+    writes = configure_seat_move_service(monkeypatch, seat="available")
+
+    assert seating_service.move_student_assignment(20, 1, "A02") == "moved"
+    assert len(writes) == 1
+    query, params = writes[0]
+    assert all(field in query for field in ("room_id", "seat_number", "row_no", "column_no"))
+    assert params == (1, "A02", 1, 2, 20)
 
 
 def test_teacher_student_search_is_limited_to_assigned_exam_rosters(client, monkeypatch):
@@ -857,3 +1132,133 @@ def test_only_admin_can_use_seat_swap_endpoint(client, monkeypatch):
     )
     assert response.status_code == 200
     assert calls == [(1, 11, 12)]
+
+
+def configure_exam_allocation_database(monkeypatch, exams=None, students=None):
+    from backend.services import allocation_service
+
+    exams = set(exams if exams is not None else {4})
+    students = {
+        student["id"]: student
+        for student in (
+            students
+            or [
+                {"id": 11, "roll_no": "R011", "name": "Student One", "email": "one@example.test"},
+                {"id": 12, "roll_no": "R012", "name": "Student Two", "email": "two@example.test"},
+            ]
+        )
+    }
+    allocations = set()
+    executions = []
+
+    def fetch_one(query, params=()):
+        record_id = params[0] if params else None
+        if "FROM exams" in query:
+            return {"id": record_id} if record_id in exams else None
+        if "FROM students" in query:
+            return {"id": record_id} if record_id in students else None
+        if "FROM exam_students" in query:
+            return {"id": 1} if tuple(params) in allocations else None
+        raise AssertionError(f"Unexpected allocation query: {query}")
+
+    def fetch_all(query, params=()):
+        exam_id = params[0]
+        if "FROM exam_students es\n        INNER JOIN students s" in query:
+            return [
+                students[student_id]
+                for allocated_exam_id, student_id in sorted(allocations)
+                if allocated_exam_id == exam_id
+            ]
+        if "FROM students s" in query:
+            return [
+                student
+                for student_id, student in sorted(students.items())
+                if (exam_id, student_id) not in allocations
+            ]
+        raise AssertionError(f"Unexpected allocation query: {query}")
+
+    def execute(query, params=()):
+        executions.append((query, params))
+        if query.lstrip().startswith("INSERT INTO exam_students"):
+            allocations.add(tuple(params))
+        elif query.lstrip().startswith("DELETE FROM exam_students"):
+            allocations.discard(tuple(params))
+        else:
+            raise AssertionError(f"Unexpected allocation write: {query}")
+        return 1
+
+    monkeypatch.setattr(allocation_service, "fetch_one", fetch_one)
+    monkeypatch.setattr(allocation_service, "fetch_all", fetch_all)
+    monkeypatch.setattr(allocation_service, "execute", execute)
+    return allocations, executions
+
+
+def test_admin_can_allocate_list_and_remove_exam_students(client, monkeypatch):
+    allocations, executions = configure_exam_allocation_database(monkeypatch)
+    sign_in(client, "ADMIN")
+
+    allocated = client.post("/api/exams/4/students", json={"student_id": 11})
+    assert allocated.status_code == 200
+    assert allocations == {(4, 11)}
+    assert executions[0][1] == (4, 11)
+    assert "%s" in executions[0][0]
+
+    roster = client.get("/api/exams/4/students")
+    assert roster.status_code == 200
+    assert roster.get_json()["allocated_students"][0]["id"] == 11
+    assert [student["id"] for student in roster.get_json()["available_students"]] == [12]
+
+    removed = client.delete("/api/exams/4/students/11")
+    assert removed.status_code == 200
+    assert allocations == set()
+    assert executions[1][1] == (4, 11)
+    assert "%s" in executions[1][0]
+
+
+def test_exam_student_allocation_rejects_duplicate(client, monkeypatch):
+    allocations, _ = configure_exam_allocation_database(monkeypatch)
+    allocations.add((4, 11))
+    sign_in(client, "ADMIN")
+
+    response = client.post("/api/exams/4/students", json={"student_id": 11})
+
+    assert response.status_code == 409
+    assert response.get_json()["message"] == "Student is already allocated to this exam."
+
+
+@pytest.mark.parametrize(
+    ("path", "payload", "expected_status", "expected_message"),
+    [
+        ("/api/exams/999/students", {"student_id": 11}, 404, "Exam not found."),
+        ("/api/exams/4/students", {"student_id": 999}, 404, "Student not found."),
+        ("/api/exams/4/students", {"student_id": "not-an-id"}, 400, "A valid student ID is required."),
+        ("/api/exams/0/students", {"student_id": 11}, 400, "A valid exam ID is required."),
+    ],
+)
+def test_exam_student_allocation_rejects_invalid_ids(
+    client, monkeypatch, path, payload, expected_status, expected_message
+):
+    configure_exam_allocation_database(monkeypatch)
+    sign_in(client, "ADMIN")
+
+    response = client.post(path, json=payload)
+
+    assert response.status_code == expected_status
+    assert response.get_json()["message"] == expected_message
+
+
+@pytest.mark.parametrize("role", ["TEACHER", "STUDENT"])
+def test_non_admins_cannot_manage_exam_student_allocations(client, monkeypatch, role):
+    from backend.routes import exam_routes
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("Allocation service must not run for non-admin users.")
+
+    monkeypatch.setattr(exam_routes, "get_exam_roster", forbidden)
+    monkeypatch.setattr(exam_routes, "allocate_student_to_exam", forbidden)
+    monkeypatch.setattr(exam_routes, "remove_student_from_exam", forbidden)
+    sign_in(client, role)
+
+    assert client.get("/api/exams/4/students").status_code == 403
+    assert client.post("/api/exams/4/students", json={"student_id": 11}).status_code == 403
+    assert client.delete("/api/exams/4/students/11").status_code == 403

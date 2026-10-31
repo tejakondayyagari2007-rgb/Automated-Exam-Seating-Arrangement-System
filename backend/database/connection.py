@@ -25,12 +25,10 @@ class DatabaseConnection:
     def connect():
         try:
             return mysql.connector.connect(**DatabaseConnection.get_config())
-        except Exception:
-            sqlite_db = os.path.join(os.getcwd(), "exam_seating_system.db")
-            import sqlite3
-            connection = sqlite3.connect(sqlite_db)
-            connection.row_factory = sqlite3.Row
-            return connection
+        except mysql.connector.Error as error:
+            raise RuntimeError(
+                f"Unable to connect to the configured MySQL database: {error.msg}"
+            ) from error
 
 
 def check_mysql():

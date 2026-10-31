@@ -45,6 +45,23 @@
                     </table>
                 </div>
             </section>
+            <section class="card" data-admin-only style="margin-top: 24px;">
+                <h3>Student Exam Allocations</h3>
+                <label for="roster-exam">Exam</label>
+                <select id="roster-exam">
+                    <option value="">Select an exam</option>
+                </select>
+                <div class="form-grid" style="margin-top: 16px;">
+                    <div>
+                        <h4>Allocated Students</h4>
+                        <ul id="allocated-students"></ul>
+                    </div>
+                    <div>
+                        <h4>Available Students</h4>
+                        <ul id="available-students"></ul>
+                    </div>
+                </div>
+            </section>
         </main>
     </div>
     <div id="toast-container"></div>
@@ -54,6 +71,7 @@
     <script>
         const examForm = document.getElementById('exam-form');
         const subjectSelect = document.getElementById('exam-subject');
+        const rosterExamSelect = document.getElementById('roster-exam');
         let editingExamId = null;
 
         function addCell(row, value) {
@@ -84,9 +102,10 @@
         async function loadExams() {
             try {
                 const response = await apiRequest('/api/exams');
+                const exams = response.exams || [];
                 const body = document.getElementById('exams-body');
                 body.replaceChildren();
-                (response.exams || []).forEach((exam) => {
+                exams.forEach((exam) => {
                     const row = document.createElement('tr');
                     addCell(row, exam.name);
                     addCell(row, exam.exam_code);
@@ -114,10 +133,90 @@
                     }
                     body.appendChild(row);
                 });
+                if (getCurrentUser().role === 'ADMIN') {
+                    const selectedExamId = rosterExamSelect.value;
+                    rosterExamSelect.replaceChildren(new Option('Select an exam', ''));
+                    exams.forEach((exam) => {
+                        rosterExamSelect.add(new Option(`${exam.name} (${exam.exam_code})`, exam.id));
+                    });
+                    rosterExamSelect.value = exams.some(
+                        (exam) => String(exam.id) === selectedExamId,
+                    ) ? selectedExamId : (exams.length ? String(exams[0].id) : '');
+                    await loadExamRoster(rosterExamSelect.value);
+                }
             } catch (error) {
                 showToast(error.message, 'error');
             }
         }
+
+        function renderStudentRoster(container, students, actionLabel, onAction, emptyMessage) {
+            container.replaceChildren();
+            if (!students.length) {
+                const emptyItem = document.createElement('li');
+                emptyItem.textContent = emptyMessage;
+                container.appendChild(emptyItem);
+                return;
+            }
+            students.forEach((student) => {
+                const item = document.createElement('li');
+                const label = document.createElement('span');
+                label.textContent = `${student.roll_no} — ${student.name}`;
+                const button = document.createElement('button');
+                button.type = 'button';
+                button.className = 'secondary-btn';
+                button.textContent = actionLabel;
+                button.addEventListener('click', () => onAction(student.id));
+                item.append(label, button);
+                container.appendChild(item);
+            });
+        }
+
+        async function loadExamRoster(examId) {
+            const allocatedList = document.getElementById('allocated-students');
+            const availableList = document.getElementById('available-students');
+            if (!examId) {
+                renderStudentRoster(allocatedList, [], '', null, 'Select an exam.');
+                renderStudentRoster(availableList, [], '', null, 'Select an exam.');
+                return;
+            }
+            try {
+                const response = await apiRequest(`/api/exams/${encodeURIComponent(examId)}/students`);
+                renderStudentRoster(
+                    allocatedList,
+                    response.allocated_students || [],
+                    'Remove',
+                    (studentId) => updateExamAllocation(examId, studentId, false),
+                    'No students allocated.',
+                );
+                renderStudentRoster(
+                    availableList,
+                    response.available_students || [],
+                    'Allocate',
+                    (studentId) => updateExamAllocation(examId, studentId, true),
+                    'All students are allocated.',
+                );
+            } catch (error) {
+                showToast(error.message, 'error');
+            }
+        }
+
+        async function updateExamAllocation(examId, studentId, allocate) {
+            const url = `/api/exams/${encodeURIComponent(examId)}/students`;
+            try {
+                if (allocate) {
+                    await apiRequest(url, { method: 'POST', body: { student_id: studentId } });
+                    showToast('Student allocated to exam successfully.', 'success');
+                } else {
+                    await apiRequest(`${url}/${encodeURIComponent(studentId)}`, { method: 'DELETE' });
+                    showToast('Student allocation removed successfully.', 'success');
+                }
+                await loadExamRoster(examId);
+            } catch (error) {
+                showToast(error.message, 'error');
+            }
+        }
+
+        rosterExamSelect.addEventListener('change', () => loadExamRoster(rosterExamSelect.value));
 
         function editExam(exam) {
             editingExamId = exam.id;

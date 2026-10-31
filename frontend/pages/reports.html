@@ -86,9 +86,22 @@
                     ['Exam Summary', examSummary.length],
                     ['Attendance Summary', attendanceSummary.length]
                 ];
-                document.getElementById('report-grid').innerHTML = cards.map(([label, value]) => `
-                    <div class="card"><div class="label">${label}</div><div class="value" style="font-size:2rem; margin-top:12px;">${value}</div></div>
-                `).join('');
+                const reportGrid = document.getElementById('report-grid');
+                reportGrid.replaceChildren();
+                cards.forEach(([label, value]) => {
+                    const card = document.createElement('div');
+                    card.className = 'card';
+                    const labelElement = document.createElement('div');
+                    labelElement.className = 'label';
+                    labelElement.textContent = label;
+                    const valueElement = document.createElement('div');
+                    valueElement.className = 'value';
+                    valueElement.style.fontSize = '2rem';
+                    valueElement.style.marginTop = '12px';
+                    valueElement.textContent = String(value);
+                    card.append(labelElement, valueElement);
+                    reportGrid.appendChild(card);
+                });
                 renderTable(
                     'exam-summary-table',
                     ['Exam', 'Code', 'Date', 'Registered Students', 'Seated Students', 'Arrangements'],

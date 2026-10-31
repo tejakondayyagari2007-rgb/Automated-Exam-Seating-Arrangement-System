@@ -11,12 +11,25 @@ from backend.middleware.auth_middleware import (
 )
 from backend.services.seating_service import (
     generate_exam_arrangement,
+    move_student_assignment,
     publish_arrangement,
     swap_student_assignments,
     validate_arrangement_for_db,
 )
 
 bp = Blueprint("seating_routes", __name__)
+
+
+def _parse_positive_id(value):
+    if isinstance(value, bool):
+        return None
+    try:
+        parsed_id = int(value)
+    except (TypeError, ValueError):
+        return None
+    if parsed_id < 1 or str(value).strip() != str(parsed_id):
+        return None
+    return parsed_id
 
 
 @bp.route("/api/seating/generate", methods=["POST"])
@@ -121,12 +134,30 @@ def swap_students():
 @role_required("ADMIN")
 def move_student():
     payload = request.get_json(silent=True) or {}
-    assignment_id = payload.get("assignment_id")
-    room_id = payload.get("room_id")
+    if not isinstance(payload, dict):
+        return jsonify({"success": False, "message": "Valid assignment, room, and seat details are required."}), 400
+    assignment_id = _parse_positive_id(payload.get("assignment_id"))
+    room_id = _parse_positive_id(payload.get("room_id"))
     seat_number = payload.get("seat_number")
-    if not all([assignment_id, room_id, seat_number]):
-        return jsonify({"success": False, "message": "Assignment, room, and seat number are required."}), 400
-    execute("UPDATE seat_assignments SET room_id = %s, seat_number = %s, updated_at = NOW() WHERE id = %s", (room_id, seat_number, assignment_id))
+    if not assignment_id or not room_id or not isinstance(seat_number, str) or not seat_number.strip():
+        return jsonify({
+            "success": False,
+            "message": "Valid assignment ID, room ID, and seat number are required.",
+        }), 400
+
+    result = move_student_assignment(assignment_id, room_id, seat_number)
+    errors = {
+        "assignment_not_found": ("Seat assignment not found.", 404),
+        "arrangement_locked": ("The seating arrangement is locked.", 409),
+        "room_not_found": ("Room not found.", 404),
+        "room_inactive": ("The target room is not active.", 400),
+        "invalid_seat": ("The target seat does not exist in this room.", 400),
+        "seat_unavailable": ("The target seat is blocked, reserved, or unavailable.", 409),
+        "seat_occupied": ("The target seat is already occupied in this arrangement.", 409),
+    }
+    if result in errors:
+        message, status_code = errors[result]
+        return jsonify({"success": False, "message": message}), status_code
     return jsonify({"success": True, "message": "Student moved successfully."})
 
 

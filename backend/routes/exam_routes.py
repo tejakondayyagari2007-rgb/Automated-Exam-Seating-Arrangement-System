@@ -13,6 +13,11 @@ from backend.middleware.auth_middleware import (
     login_required,
     role_required,
 )
+from backend.services.allocation_service import (
+    allocate_student_to_exam,
+    get_exam_roster,
+    remove_student_from_exam,
+)
 
 bp = Blueprint("exam_routes", __name__)
 
@@ -91,6 +96,18 @@ def serialize_exam(row):
     return row
 
 
+def parse_positive_id(value):
+    if isinstance(value, bool):
+        return None
+    try:
+        parsed_id = int(value)
+    except (TypeError, ValueError):
+        return None
+    if parsed_id < 1 or str(value).strip() != str(parsed_id):
+        return None
+    return parsed_id
+
+
 def is_duplicate_exam_code_error(error):
     if getattr(error, "errno", None) == 1062:
         return True
@@ -151,6 +168,61 @@ def list_exams():
             """
         )
     return jsonify({"success": True, "exams": [serialize_exam(exam) for exam in exams]})
+
+
+@bp.route("/api/exams/<int:exam_id>/students", methods=["GET"])
+@login_required
+@role_required("ADMIN")
+def list_exam_students(exam_id):
+    if exam_id < 1:
+        return jsonify({"success": False, "message": "A valid exam ID is required."}), 400
+    roster = get_exam_roster(exam_id)
+    if roster is None:
+        return jsonify({"success": False, "message": "Exam not found."}), 404
+    return jsonify({"success": True, **roster})
+
+
+@bp.route("/api/exams/<int:exam_id>/students", methods=["POST"])
+@login_required
+@role_required("ADMIN")
+def allocate_exam_student(exam_id):
+    if exam_id < 1:
+        return jsonify({"success": False, "message": "A valid exam ID is required."}), 400
+    payload = request.get_json(silent=True) or {}
+    if not isinstance(payload, dict):
+        return jsonify({"success": False, "message": "A valid student ID is required."}), 400
+    student_id = parse_positive_id(payload.get("student_id"))
+    if student_id is None:
+        return jsonify({"success": False, "message": "A valid student ID is required."}), 400
+
+    result = allocate_student_to_exam(exam_id, student_id)
+    if result == "exam_not_found":
+        return jsonify({"success": False, "message": "Exam not found."}), 404
+    if result == "student_not_found":
+        return jsonify({"success": False, "message": "Student not found."}), 404
+    if result == "already_allocated":
+        return jsonify({"success": False, "message": "Student is already allocated to this exam."}), 409
+    return jsonify({"success": True, "message": "Student allocated to exam successfully."})
+
+
+@bp.route(
+    "/api/exams/<int:exam_id>/students/<int:student_id>",
+    methods=["DELETE"],
+)
+@login_required
+@role_required("ADMIN")
+def remove_exam_student(exam_id, student_id):
+    if exam_id < 1 or student_id < 1:
+        return jsonify({"success": False, "message": "Valid exam and student IDs are required."}), 400
+
+    result = remove_student_from_exam(exam_id, student_id)
+    if result == "exam_not_found":
+        return jsonify({"success": False, "message": "Exam not found."}), 404
+    if result == "student_not_found":
+        return jsonify({"success": False, "message": "Student not found."}), 404
+    if result == "allocation_not_found":
+        return jsonify({"success": False, "message": "Student is not allocated to this exam."}), 404
+    return jsonify({"success": True, "message": "Student allocation removed successfully."})
 
 
 @bp.route("/api/exams", methods=["POST"])
